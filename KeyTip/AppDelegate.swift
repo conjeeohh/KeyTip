@@ -23,6 +23,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// 状态栏菜单
     private var statusMenu: NSMenu?
 
+    /// 偏好设置窗口（手动管理，避免 SettingsLink 限制）
+    private var settingsWindow: NSWindow?
+
     /// 全局热键管理器
     private let hotKeyManager = HotKeyManager()
 
@@ -163,16 +166,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 显示偏好设置窗口
     @objc private func showPreferences() {
-        // 激活应用并显示 Settings scene
-        NSApp.activate(ignoringOtherApps: true)
-        // 在 macOS 14+ 中使用 SettingsLink 或通过菜单项打开
-        if #available(macOS 14.0, *) {
+        // 如果窗口已存在且可见，直接激活到前台
+        if let window = settingsWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            // 通过发送通知触发 Settings 窗口打开
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+            return
         }
+
+        // 创建偏好设置窗口
+        let settingsView = SettingsView()
+        let hostingController = NSHostingController(rootView: settingsView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "KeyTip 偏好设置"
+        window.contentViewController = hostingController
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        self.settingsWindow = window
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// 手动检查辅助功能权限
