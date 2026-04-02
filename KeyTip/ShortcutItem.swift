@@ -66,8 +66,9 @@ struct ShortcutItem: Identifiable, Sendable, Hashable {
 
     /// 创建一个从菜单栏读取的快捷键条目
     init(title: String, menuName: String, modifiers: ShortcutModifiers, keyCharacter: String) {
-        // 使用 菜单名+标题 作为唯一 ID，确保可以去重和合并
-        self.id = "\(menuName).\(title)"
+        // 使用 菜单名+标题+快捷键 作为唯一 ID
+        // 同一菜单下可能有同名菜单项但快捷键不同（如 Finder 的排序选项在不同上下文出现）
+        self.id = "\(menuName).\(title).\(modifiers.symbolString)\(keyCharacter)"
         self.title = title
         self.menuName = menuName
         self.modifiers = modifiers
