@@ -20,13 +20,10 @@ struct KeyTipApp: App {
     // MARK: - Scene
 
     var body: some Scene {
-        // 使用 Settings scene 而非 WindowGroup
-        // 因为本应用是 Menu Bar 应用，不需要主窗口
-        // Settings scene 会在用户点击「偏好设置」时显示（Step 5 中完善）
+        // 使用 Settings scene 作为偏好设置窗口
+        // 当用户通过菜单栏选择「偏好设置」时打开
         Settings {
-            Text("KeyTip 偏好设置将在后续步骤中实现")
-                .frame(width: 400, height: 300)
-                .padding()
+            SettingsView()
         }
     }
 }

@@ -26,6 +26,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// 全局热键管理器
     private let hotKeyManager = HotKeyManager()
 
+    /// HUD 悬浮窗控制器
+    private let hudController = HUDPanelController()
+
     // MARK: - 生命周期
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -44,6 +47,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // 停止热键监听，释放资源
         hotKeyManager.stopListening()
+        // 关闭 HUD
+        hudController.dismiss()
         print("🛑 KeyTip 即将退出")
     }
 
@@ -116,9 +121,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        print("═══════════════════════════════════════════")
+        // 如果 HUD 已显示，再次按热键则关闭
+        if hudController.isShowing {
+            hudController.dismiss()
+            return
+        }
+
         print("🔥 热键触发！前台应用: \(appInfo.localizedName) (\(appInfo.bundleIdentifier))")
-        print("───────────────────────────────────────────")
 
         // 使用 Accessibility API 读取菜单栏快捷键
         let systemGroups = MenuBarReader.readShortcuts(from: appInfo)
@@ -126,21 +135,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 合并自定义配置（剔除隐藏项 + 追加自定义项）
         let groups = ShortcutMerger.merge(systemGroups: systemGroups, for: appInfo.bundleIdentifier)
 
-        if groups.isEmpty {
-            print("   ❌ 未读取到任何快捷键")
-        } else {
-            // 打印所有快捷键（调试用，后续 Step 5 会替换为 HUD 展示）
-            for group in groups {
-                print("  📂 \(group.menuName):")
-                for item in group.items {
-                    print("     \(item.displayShortcut)  \(item.title)")
-                }
-            }
-        }
-
-        print("═══════════════════════════════════════════")
-
-        // TODO: Step 5 - 这里将显示 HUD 悬浮窗展示快捷键列表
+        // 显示 HUD 悬浮窗
+        hudController.show(appInfo: appInfo, groups: groups)
     }
 
     // MARK: - 辅助功能权限
@@ -165,10 +161,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.orderFrontStandardAboutPanel(nil)
     }
 
-    /// 显示偏好设置窗口（Step 5 实现）
+    /// 显示偏好设置窗口
     @objc private func showPreferences() {
-        print("📋 偏好设置 - 将在 Step 5 实现")
-        // TODO: Step 5 中实现偏好设置窗口
+        // 激活应用并显示 Settings scene
+        NSApp.activate(ignoringOtherApps: true)
+        // 在 macOS 14+ 中使用 SettingsLink 或通过菜单项打开
+        if #available(macOS 14.0, *) {
+            NSApp.activate(ignoringOtherApps: true)
+            // 通过发送通知触发 Settings 窗口打开
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
     }
 
     /// 手动检查辅助功能权限
