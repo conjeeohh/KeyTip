@@ -116,14 +116,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        print("═══════════════════════════════════")
-        print("🔥 热键触发！前台应用信息：")
-        print("   名称: \(appInfo.localizedName)")
-        print("   Bundle ID: \(appInfo.bundleIdentifier)")
-        print("   PID: \(appInfo.processIdentifier)")
-        print("═══════════════════════════════════")
+        print("═══════════════════════════════════════════")
+        print("🔥 热键触发！前台应用: \(appInfo.localizedName) (\(appInfo.bundleIdentifier))")
+        print("───────────────────────────────────────────")
 
-        // TODO: Step 3/5 - 这里将调用 Accessibility API 读取快捷键并显示 HUD
+        // 使用 Accessibility API 读取菜单栏快捷键
+        let groups = MenuBarReader.readShortcuts(from: appInfo)
+
+        if groups.isEmpty {
+            print("   ❌ 未读取到任何快捷键")
+        } else {
+            // 打印所有快捷键（调试用，后续 Step 5 会替换为 HUD 展示）
+            for group in groups {
+                print("  📂 \(group.menuName):")
+                for item in group.items {
+                    print("     \(item.displayShortcut)  \(item.title)")
+                }
+            }
+        }
+
+        print("═══════════════════════════════════════════")
+
+        // TODO: Step 5 - 这里将显示 HUD 悬浮窗展示快捷键列表
     }
 
     // MARK: - 辅助功能权限
