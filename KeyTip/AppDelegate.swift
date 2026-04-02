@@ -121,7 +121,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("───────────────────────────────────────────")
 
         // 使用 Accessibility API 读取菜单栏快捷键
-        let groups = MenuBarReader.readShortcuts(from: appInfo)
+        let systemGroups = MenuBarReader.readShortcuts(from: appInfo)
+
+        // 合并自定义配置（剔除隐藏项 + 追加自定义项）
+        let groups = ShortcutMerger.merge(systemGroups: systemGroups, for: appInfo.bundleIdentifier)
 
         if groups.isEmpty {
             print("   ❌ 未读取到任何快捷键")
