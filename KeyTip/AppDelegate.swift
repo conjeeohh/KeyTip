@@ -23,6 +23,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// 状态栏菜单
     private var statusMenu: NSMenu?
 
+    /// 全局热键管理器
+    private let hotKeyManager = HotKeyManager()
+
     // MARK: - 生命周期
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,10 +35,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 2. 检查并请求辅助功能权限
         checkAccessibilityPermission()
 
+        // 3. 启动全局热键监听
+        setupHotKey()
+
         print("✅ KeyTip 已启动，运行于状态栏模式")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // 停止热键监听，释放资源
+        hotKeyManager.stopListening()
         print("🛑 KeyTip 即将退出")
     }
 
@@ -88,6 +96,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem?.menu = menu
         statusMenu = menu
+    }
+
+    // MARK: - 全局热键
+
+    /// 配置并启动全局热键监听
+    /// 默认热键为 Option+Z，触发时获取前台应用信息
+    private func setupHotKey() {
+        hotKeyManager.startListening(modifiers: .option, key: "z") { [weak self] appInfo in
+            self?.handleHotKeyTriggered(appInfo: appInfo)
+        }
+    }
+
+    /// 热键触发回调
+    /// - Parameter appInfo: 当前前台应用信息
+    private func handleHotKeyTriggered(appInfo: ActiveAppInfo?) {
+        guard let appInfo = appInfo else {
+            print("⚠️ 热键触发，但无法获取前台应用信息")
+            return
+        }
+
+        print("═══════════════════════════════════")
+        print("🔥 热键触发！前台应用信息：")
+        print("   名称: \(appInfo.localizedName)")
+        print("   Bundle ID: \(appInfo.bundleIdentifier)")
+        print("   PID: \(appInfo.processIdentifier)")
+        print("═══════════════════════════════════")
+
+        // TODO: Step 3/5 - 这里将调用 Accessibility API 读取快捷键并显示 HUD
     }
 
     // MARK: - 辅助功能权限
