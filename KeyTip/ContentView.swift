@@ -2,58 +2,33 @@
 //  ContentView.swift
 //  KeyTip
 //
-//  Created by 粥太浓了 on 2026/4/2.
+//  临时主视图 - 将在 Step 5 中被正式的 HUD 和设置视图替换
 //
 
 import SwiftUI
-import SwiftData
 
+/// 临时占位视图
+/// 当前阶段应用以 Menu Bar 模式运行，此视图暂不显示
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+        VStack(spacing: 16) {
+            Image(systemName: "keyboard")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("KeyTip")
+                .font(.title)
+                .fontWeight(.bold)
+            Text("全局快捷键查看工具")
+                .foregroundStyle(.secondary)
+            Text("应用正在状态栏运行中")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
+        .frame(width: 300, height: 200)
+        .padding()
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }
