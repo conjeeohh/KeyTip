@@ -23,11 +23,14 @@ struct SettingsView: View {
     /// 新增隐藏项的输入
     @State private var newHiddenItemID = ""
 
-    /// 触发热键修饰键选择
-    @State private var selectedModifier = "Option"
+    // MARK: - 偏好设置状态
+    
+    @AppStorage(ConfigKeys.triggerModifier) private var triggerModifier: TriggerModifier = .command
+    @AppStorage(ConfigKeys.triggerDuration) private var triggerDuration: Double = 0.6
 
-    /// 触发热键按键
-    @State private var selectedKey = "Z"
+    /// 触发热键修饰键选择 (废弃，改用 AppStorage)
+    // @State private var selectedModifier = "Option"
+    // @State private var selectedKey = "Z"
 
     var body: some View {
         TabView {
@@ -46,7 +49,7 @@ struct SettingsView: View {
                     Label("关于", systemImage: "info.circle")
                 }
         }
-        .frame(width: 520, height: 400)
+        .frame(width: 540, height: 420)
         .onAppear {
             refreshConfigList()
         }
@@ -56,31 +59,30 @@ struct SettingsView: View {
 
     private var generalSettingsView: some View {
         Form {
-            Section("触发热键") {
-                HStack {
-                    Picker("修饰键", selection: $selectedModifier) {
-                        Text("⌥ Option").tag("Option")
-                        Text("⌃ Control").tag("Control")
-                        Text("⌘ Command").tag("Command")
+            Section("触发机制 (长按触发，松开消失)") {
+                Picker("修饰键", selection: $triggerModifier) {
+                    ForEach(TriggerModifier.allCases) { modifier in
+                        Text(modifier.displayName).tag(modifier)
                     }
-                    .frame(width: 200)
-
-                    Text("+")
-                        .foregroundStyle(.secondary)
-
-                    TextField("按键", text: $selectedKey)
-                        .frame(width: 50)
-                        .multilineTextAlignment(.center)
                 }
+                .pickerStyle(.menu)
+                .onChange(of: triggerModifier) { _ in postConfigChangedNotification() }
 
-                Text("当前热键: \(selectedModifier == "Option" ? "⌥" : selectedModifier == "Control" ? "⌃" : "⌘")\(selectedKey.uppercased())")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("长按触发时长:")
+                        Spacer()
+                        Text(String(format: "%.1f 秒", triggerDuration))
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $triggerDuration, in: 0.3...1.5, step: 0.1)
+                        .onChange(of: triggerDuration) { _ in postConfigChangedNotification() }
+                }
+                .padding(.top, 4)
             }
 
             Section("行为") {
                 Toggle("登录时自动启动", isOn: .constant(false))
-                Toggle("再次按热键关闭 HUD", isOn: .constant(true))
             }
 
             Section("辅助功能") {
@@ -212,6 +214,10 @@ struct SettingsView: View {
 
     private func refreshConfigList() {
         configuredApps = Array(ConfigStore.shared.configuration.appConfigs.keys).sorted()
+    }
+
+    private func postConfigChangedNotification() {
+        NotificationCenter.default.post(name: NSNotification.Name("HotKeyConfigChanged"), object: nil)
     }
 }
 

@@ -26,156 +26,186 @@ class HotKeyManager {
 
     // MARK: - 类型定义
 
-    /// 热键触发时的回调闭包
-    /// 传入触发热键时检测到的前台应用信息（可能为 nil）
-    typealias HotKeyHandler = @MainActor (ActiveAppInfo?) -> Void
+    /// 热键触发开始（长按达到指定时间）回调
+    typealias HotKeyStartHandler = @MainActor (ActiveAppInfo?) -> Void
+    /// 热键释放（松开修饰键）或被打断时的回调
+    typealias HotKeyEndHandler = @MainActor () -> Void
 
     // MARK: - 属性
 
-    /// 全局事件监听器引用，用于后续移除
-    private var globalMonitor: Any?
+    private var globalFlagsMonitor: Any?
+    private var localFlagsMonitor: Any?
+    private var globalKeyMonitor: Any?
+    private var localKeyMonitor: Any?
+    
+    // 鼠标拦截（确保点击也能打断展示）
+    private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
 
-    /// 本地事件监听器引用，用于后续移除
-    private var localMonitor: Any?
+    private var startHandler: HotKeyStartHandler?
+    private var endHandler: HotKeyEndHandler?
 
-    /// 热键触发时的回调
-    private var handler: HotKeyHandler?
+    /// 当前配置的目标修饰键
+    private var targetModifier: TriggerModifier = .command
+    /// 当前配置的长按触发时长
+    private var holdDuration: TimeInterval = 0.6
 
-    /// 当前配置的触发修饰键（默认为 Option/Alt）
-    private var triggerModifiers: NSEvent.ModifierFlags = .option
-
-    /// 当前配置的触发按键字符（默认为 "z"）
-    private var triggerKeyChar: String = "z"
-
-    /// 是否正在监听
     private(set) var isListening: Bool = false
+    
+    // 状态追踪
+    private var isPressing = false
+    private var isShowingHUD = false
+    private var pressTask: Task<Void, Never>?
 
     // MARK: - 初始化
 
     init() {}
 
-    // 注意：资源清理（停止监听）由调用方（AppDelegate.applicationWillTerminate）负责
-    // deinit 在 Swift 6 中是 nonisolated 的，不能调用 @MainActor 隔离方法
-
     // MARK: - 公开方法
 
-    /// 开始监听全局热键
-    /// - Parameters:
-    ///   - modifiers: 修饰键组合（如 .option, .command, .control 等），默认为 .option
-    ///   - key: 触发按键字符（如 "z"），默认为 "z"
-    ///   - handler: 热键触发时的回调，参数为当前前台应用信息
+    /// 更新配置规则
+    func updateConfig(modifier: TriggerModifier, duration: TimeInterval) {
+        self.targetModifier = modifier
+        self.holdDuration = duration
+        print("🎹 热键配置已更新: \(modifier.displayName), 时长: \(duration)s")
+    }
+
+    /// 开始监听全局长按热键
     func startListening(
-        modifiers: NSEvent.ModifierFlags = .option,
-        key: String = "z",
-        handler: @escaping HotKeyHandler
+        onStart: @escaping HotKeyStartHandler,
+        onEnd: @escaping HotKeyEndHandler
     ) {
-        // 如果已经在监听，先停止旧的监听器
-        if isListening {
-            stopListening()
+        if isListening { stopListening() }
+
+        self.startHandler = onStart
+        self.endHandler = onEnd
+
+        // 核心监听 1: 修饰键状态改变 (.flagsChanged)
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            MainActor.assumeIsolated { self?.handleFlagsChanged(event) }
+        }
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            MainActor.assumeIsolated { self?.handleFlagsChanged(event) }
+            return event
         }
 
-        self.triggerModifiers = modifiers
-        self.triggerKeyChar = key
-        self.handler = handler
-
-        // 注册全局事件监听器
-        // addGlobalMonitorForEvents 可以捕获其他应用处于前台时的键盘事件
-        // 注意：这需要辅助功能权限，否则回调不会触发
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            // 全局监听回调在主线程执行，但闭包捕获需要通过 MainActor 调度
-            MainActor.assumeIsolated {
-                self?.handleKeyEvent(event)
-            }
+        // 核心监听 2: 其他普通按键 (.keyDown) -- 用于打断长按计时或强制关闭 HUD
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated { self?.handleInterruption() }
         }
-
-        // 注册本地事件监听器
-        // addLocalMonitorForEvents 捕获本应用处于前台时的键盘事件
-        // 两者结合确保无论哪个应用在前台都能响应热键
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            MainActor.assumeIsolated {
-                self?.handleKeyEvent(event)
-            }
-            // 返回 event 表示不吞掉该事件，让事件继续传递
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated { self?.handleInterruption() }
+            return event
+        }
+        
+        // 核心监听 3: 鼠标点击 -- 用于打断长按计时或强制关闭 HUD
+        let mouseMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseMask) { [weak self] event in
+            MainActor.assumeIsolated { self?.handleInterruption() }
+        }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseMask) { [weak self] event in
+            MainActor.assumeIsolated { self?.handleInterruption() }
             return event
         }
 
         isListening = true
-
-        // 构建修饰键描述字符串
-        let modifierStr = modifierDescription(modifiers)
-        print("🎹 全局热键监听已启动: \(modifierStr)+\(key.uppercased())")
+        print("🎹 全局热键长按监听已启动")
     }
 
     /// 停止监听全局热键
     func stopListening() {
-        // 移除全局事件监听器
-        if let monitor = globalMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalMonitor = nil
-        }
-
-        // 移除本地事件监听器
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMonitor = nil
-        }
+        if let m = globalFlagsMonitor { NSEvent.removeMonitor(m) }
+        globalFlagsMonitor = nil
+        if let m = localFlagsMonitor { NSEvent.removeMonitor(m) }
+        localFlagsMonitor = nil
+        
+        if let m = globalKeyMonitor { NSEvent.removeMonitor(m) }
+        globalKeyMonitor = nil
+        if let m = localKeyMonitor { NSEvent.removeMonitor(m) }
+        localKeyMonitor = nil
+        
+        if let m = globalMouseMonitor { NSEvent.removeMonitor(m) }
+        globalMouseMonitor = nil
+        if let m = localMouseMonitor { NSEvent.removeMonitor(m) }
+        localMouseMonitor = nil
 
         isListening = false
-        handler = nil
-        print("🔇 全局热键监听已停止")
+        startHandler = nil
+        endHandler = nil
+        
+        // 强制清理状态
+        handleInterruption()
+        
+        print("🔇 全局热键长按监听已停止")
     }
 
-    // MARK: - 私有方法
+    // MARK: - 私有逻辑
 
-    /// 处理键盘事件，判断是否匹配热键配置
-    /// - Parameter event: NSEvent 键盘事件
-    private func handleKeyEvent(_ event: NSEvent) {
-        // 获取按键字符（不含修饰键影响的原始字符）
-        // charactersIgnoringModifiers 返回忽略修饰键后的字符
-        // 例如：Option+Z 在某些键盘布局下可能产生特殊字符，但 ignoring 版本始终返回 "z"
-        guard let chars = event.charactersIgnoringModifiers?.lowercased() else {
-            return
-        }
+    private func handleFlagsChanged(_ event: NSEvent) {
+        // 仅检查 4 大核心修饰键，忽略 CapsLock 和其他状态
+        let relevantMask: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        let pressedModifiers = event.modifierFlags.intersection(relevantMask)
+        
+        let isTargetPressed = (pressedModifiers == targetModifier.flags)
 
-        // 检查按键字符是否匹配
-        guard chars == triggerKeyChar else {
-            return
-        }
-
-        // 检查修饰键是否匹配
-        // event.modifierFlags 包含当前按下的所有修饰键
-        // .intersection(.deviceIndependentFlagsMask) 过滤掉设备相关的标志位，只保留修饰键信息
-        // 这确保我们只检查 Command/Option/Control/Shift 等标准修饰键
-        let pressedModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard pressedModifiers == triggerModifiers else {
-            return
-        }
-
-        // 热键匹配成功！获取当前前台应用信息并触发回调
-        print("⚡️ 热键触发！正在检测前台应用...")
-
-        let appInfo = ActiveAppDetector.getCurrentApp()
-        if let appInfo = appInfo {
-            print("   → 前台应用: \(appInfo)")
+        if isTargetPressed {
+            // 如果仅按下了目标修饰键
+            if !isPressing {
+                isPressing = true
+                startPressDownTimer()
+            }
         } else {
-            print("   → 无法检测到前台应用")
+            // 如果松开了，或者同时按下了不止一个修饰键
+            if isPressing {
+                isPressing = false
+                cancelPressTaskAndHideIfNeeded()
+            }
         }
-
-        // 触发回调
-        handler?(appInfo)
     }
 
-    // MARK: - 辅助方法
+    private func handleInterruption() {
+        // 用户按下了任何真正的按键，或者点击了鼠标。
+        // 不论是正在计时还是正在展示HUD，都需要立刻中断。
+        isPressing = false
+        cancelPressTaskAndHideIfNeeded()
+    }
+    
+    // MARK: - 计时器器与状态控制
 
-    /// 将修饰键标志转换为可读的描述字符串
-    /// - Parameter flags: 修饰键组合
-    /// - Returns: 如 "⌥" (Option), "⌘⇧" (Command+Shift) 等
-    private func modifierDescription(_ flags: NSEvent.ModifierFlags) -> String {
-        var parts: [String] = []
-        if flags.contains(.control) { parts.append("⌃") }
-        if flags.contains(.option)  { parts.append("⌥") }
-        if flags.contains(.shift)   { parts.append("⇧") }
-        if flags.contains(.command) { parts.append("⌘") }
-        return parts.joined()
+    private func startPressDownTimer() {
+        // 开始新的倒计时任务
+        pressTask?.cancel()
+        let durationToWait = self.holdDuration
+        
+        pressTask = Task {
+            do {
+                // 等待用户设定的秒数 (例如 0.6s)
+                try await Task.sleep(nanoseconds: UInt64(durationToWait * 1_000_000_000))
+                
+                // 如果在 sleep 期间没有被 cancel，则可以展示 HUD
+                guard !Task.isCancelled else { return }
+                
+                self.isShowingHUD = true
+                
+                print("⚡️ 长按触发！正在检测前台应用...")
+                let appInfo = ActiveAppDetector.getCurrentApp()
+                
+                self.startHandler?(appInfo)
+            } catch {
+                // Task.sleep 抛出 CancellationError 时会来到此处
+            }
+        }
+    }
+
+    private func cancelPressTaskAndHideIfNeeded() {
+        // 取消正在倒计时的任务
+        pressTask?.cancel()
+        pressTask = nil
+        
+        // 如果 HUD 已经在展示，必须告知其关闭
+        if isShowingHUD {
+            isShowingHUD = false
+            endHandler?()
+        }
     }
 }

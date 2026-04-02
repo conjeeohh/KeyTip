@@ -109,28 +109,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - 全局热键
 
     /// 配置并启动全局热键监听
-    /// 默认热键为 Option+Z，触发时获取前台应用信息
     private func setupHotKey() {
-        hotKeyManager.startListening(modifiers: .option, key: "z") { [weak self] appInfo in
-            self?.handleHotKeyTriggered(appInfo: appInfo)
+        applyHotKeyConfig()
+        
+        // 监听配置改变的通知
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("HotKeyConfigChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.applyHotKeyConfig()
+            }
         }
+
+        hotKeyManager.startListening(
+            onStart: { [weak self] appInfo in
+                self?.handleLongPressStart(appInfo: appInfo)
+            },
+            onEnd: { [weak self] in
+                self?.handleLongPressEnd()
+            }
+        )
+    }
+    
+    private func applyHotKeyConfig() {
+        let defaults = UserDefaults.standard
+        // 获取修饰键，如果不存在则退化为 command
+        let modifierRaw = defaults.string(forKey: ConfigKeys.triggerModifier) ?? TriggerModifier.command.rawValue
+        let modifier = TriggerModifier(rawValue: modifierRaw) ?? .command
+        
+        let duration = defaults.object(forKey: ConfigKeys.triggerDuration) as? Double ?? 0.6
+        
+        hotKeyManager.updateConfig(modifier: modifier, duration: duration)
     }
 
-    /// 热键触发回调
-    /// - Parameter appInfo: 当前前台应用信息
-    private func handleHotKeyTriggered(appInfo: ActiveAppInfo?) {
+    /// 热键开始触发（长按达成）
+    private func handleLongPressStart(appInfo: ActiveAppInfo?) {
         guard let appInfo = appInfo else {
             print("⚠️ 热键触发，但无法获取前台应用信息")
             return
         }
 
-        // 如果 HUD 已显示，再次按热键则关闭
-        if hudController.isShowing {
-            hudController.dismiss()
-            return
-        }
-
-        print("🔥 热键触发！前台应用: \(appInfo.localizedName) (\(appInfo.bundleIdentifier))")
+        print("🔥 长按触发！前台应用: \(appInfo.localizedName) (\(appInfo.bundleIdentifier))")
 
         // 使用 Accessibility API 读取菜单栏快捷键
         let systemGroups = MenuBarReader.readShortcuts(from: appInfo)
@@ -140,6 +161,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 显示 HUD 悬浮窗
         hudController.show(appInfo: appInfo, groups: groups)
+    }
+    
+    /// 热键释放或被打断回调
+    private func handleLongPressEnd() {
+        if hudController.isShowing {
+            hudController.dismiss()
+        }
     }
 
     // MARK: - 辅助功能权限
