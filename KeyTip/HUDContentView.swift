@@ -39,25 +39,38 @@ struct VisualEffectBackground: NSViewRepresentable {
 struct HUDContentView: View {
 
     let appInfo: ActiveAppInfo
-    let shortcutGroups: [ShortcutGroup]
+    var onConfigure: (() -> Void)?
     var onDismiss: (() -> Void)?
+    @State private var visibleGroups: [DisplayGroup]
+
+    init(
+        appInfo: ActiveAppInfo,
+        displayGroups: [DisplayGroup],
+        onConfigure: (() -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        self.appInfo = appInfo
+        self.onConfigure = onConfigure
+        self.onDismiss = onDismiss
+        _visibleGroups = State(initialValue: displayGroups)
+    }
 
     /// 动态列数
     private var columnCount: Int {
-        let count = shortcutGroups.count
+        let count = visibleGroups.count
         if count <= 2 { return min(count, 2) }
         if count <= 5 { return 2 }
         return 3
     }
 
     /// 贪心分列算法 — 将分组均衡分配到各列
-    private var columns: [[ShortcutGroup]] {
-        guard !shortcutGroups.isEmpty else { return [] }
+    private var columns: [[DisplayGroup]] {
+        guard !visibleGroups.isEmpty else { return [] }
         let cols = columnCount
-        var result: [[ShortcutGroup]] = Array(repeating: [], count: cols)
+        var result: [[DisplayGroup]] = Array(repeating: [], count: cols)
         var heights = Array(repeating: 0, count: cols)
 
-        for group in shortcutGroups {
+        for group in visibleGroups {
             let minIdx = heights.indices.min(by: { heights[$0] < heights[$1] }) ?? 0
             result[minIdx].append(group)
             heights[minIdx] += group.items.count + 2
@@ -78,7 +91,7 @@ struct HUDContentView: View {
                 .frame(height: 0.5)
                 .padding(.horizontal, 20)
 
-            if shortcutGroups.isEmpty {
+            if visibleGroups.isEmpty {
                 emptyStateView
             } else {
                 shortcutGridView
@@ -120,15 +133,27 @@ struct HUDContentView: View {
 
             Spacer()
 
-            // 快捷键总数
-            let totalCount = shortcutGroups.reduce(0) { $0 + $1.items.count }
-            Text("\(totalCount) 个快捷键")
+            // 展示项总数
+            let totalCount = visibleGroups.reduce(0) { $0 + $1.items.count }
+            Text("\(totalCount) 项")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(.quaternary)
                 .clipShape(Capsule())
+
+            Button(action: { onConfigure?() }) {
+                Label("配置", systemImage: "slider.horizontal.3")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.quaternary)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("打开当前 App 的 TOML 配置文件")
 
             // 关闭按钮
             Button(action: { onDismiss?() }) {
@@ -150,7 +175,11 @@ struct HUDContentView: View {
                 ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
                     VStack(alignment: .leading, spacing: 20) {
                         ForEach(column) { group in
-                            ShortcutGroupView(group: group)
+                            DisplayGroupView(
+                                group: group,
+                                onCopySystemItemID: copySystemItemID,
+                                onHideSystemItem: hideSystemItem
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -170,10 +199,10 @@ struct HUDContentView: View {
                 .font(.system(size: 40))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.tertiary)
-            Text("未检测到快捷键")
+            Text("未检测到可展示内容")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text("该应用可能没有菜单栏快捷键，\n或需要授予辅助功能权限。")
+            Text("该应用可能没有菜单栏快捷键，\n也可以点击上方“配置”添加自定义内容。")
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -182,40 +211,67 @@ struct HUDContentView: View {
         .frame(maxWidth: .infinity, minHeight: 160)
         .padding()
     }
+
+    private func copySystemItemID(_ itemID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(itemID, forType: .string)
+        print("📋 已复制系统项 ID: \(itemID)")
+    }
+
+    private func hideSystemItem(_ itemID: String) {
+        do {
+            try ConfigStore.shared.addHiddenSystemItem(itemID, for: appInfo.bundleIdentifier)
+            visibleGroups = visibleGroups.compactMap { group in
+                let filteredItems = group.items.filter { $0.systemItemID != itemID }
+                guard !filteredItems.isEmpty else { return nil }
+                return DisplayGroup(title: group.title, items: filteredItems)
+            }
+        } catch {
+            print("⚠️ 隐藏系统项失败 [\(appInfo.bundleIdentifier)]: \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: - 分组视图
 
-struct ShortcutGroupView: View {
+struct DisplayGroupView: View {
 
-    let group: ShortcutGroup
+    let group: DisplayGroup
+    let onCopySystemItemID: (String) -> Void
+    let onHideSystemItem: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             // 分组标题
-            Text(group.menuName.uppercased())
+            Text(group.title.uppercased())
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .kerning(0.5)
                 .padding(.bottom, 2)
 
-            // 快捷键列表
+            // 展示项列表
             ForEach(group.items) { item in
-                ShortcutItemRow(item: item)
+                DisplayItemRow(
+                    item: item,
+                    onCopySystemItemID: onCopySystemItemID,
+                    onHideSystemItem: onHideSystemItem
+                )
             }
         }
     }
 }
 
-// MARK: - 快捷键行视图
+// MARK: - 展示项行视图
 
-struct ShortcutItemRow: View {
+struct DisplayItemRow: View {
 
-    let item: ShortcutItem
+    let item: DisplayItem
+    let onCopySystemItemID: (String) -> Void
+    let onHideSystemItem: (String) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            // 菜单项标题
+            // 展示标题
             Text(item.title)
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)
@@ -224,8 +280,26 @@ struct ShortcutItemRow: View {
 
             Spacer(minLength: 12)
 
-            // 快捷键按键 — 等宽字体，极简圆角背景
-            KeyCapView(shortcut: item.displayShortcut)
+            DisplayAccessoryView(accessory: item.accessory)
+
+            if let itemID = item.systemItemID {
+                Menu {
+                    Button("复制 ID") {
+                        onCopySystemItemID(itemID)
+                    }
+
+                    Button("隐藏此项", role: .destructive) {
+                        onHideSystemItem(itemID)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("复制系统项 ID 或隐藏此项")
+            }
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
@@ -236,6 +310,62 @@ struct ShortcutItemRow: View {
                         .fill(Color.accentColor.opacity(0.07))
                 }
             }
+        )
+        .contextMenu {
+            if let itemID = item.systemItemID {
+                Button("复制 ID") {
+                    onCopySystemItemID(itemID)
+                }
+
+                Button("隐藏此项") {
+                    onHideSystemItem(itemID)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - 右侧内容视图
+
+struct DisplayAccessoryView: View {
+
+    let accessory: DisplayItemAccessory
+
+    var body: some View {
+        switch accessory {
+        case .shortcut(let shortcut):
+            KeyCapView(shortcut: shortcut)
+
+        case .command(let command):
+            CommandPillView(command: command)
+        }
+    }
+}
+
+struct CommandPillView: View {
+
+    let command: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("CMD")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+            Text(command)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color(nsColor: .quaternarySystemFill))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(.primary.opacity(0.06), lineWidth: 0.5)
         )
     }
 }

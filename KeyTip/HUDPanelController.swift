@@ -24,14 +24,17 @@ class HUDPanelController {
 
     // MARK: - 公开方法
 
-    func show(appInfo: ActiveAppInfo, groups: [ShortcutGroup]) {
+    func show(appInfo: ActiveAppInfo, groups: [DisplayGroup], onConfigure: (() -> Void)? = nil) {
         if isShowing {
             dismiss()
         }
 
         let contentView = HUDContentView(
             appInfo: appInfo,
-            shortcutGroups: groups,
+            displayGroups: groups,
+            onConfigure: {
+                onConfigure?()
+            },
             onDismiss: { [weak self] in
                 self?.dismiss()
             }
