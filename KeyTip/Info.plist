@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>KeyTip 需要辅助功能权限来读取当前应用的菜单栏快捷键信息，以便为您展示可用的键盘快捷键。</string>
+</dict>
+</plist>
