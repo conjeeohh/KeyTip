@@ -17,12 +17,6 @@ struct SettingsView: View {
     /// 所有已配置的应用
     @State private var configuredApps: [String] = []
 
-    /// 新增自定义快捷键对话框显示状态
-    @State private var showingAddSheet = false
-
-    /// 新增隐藏项的输入
-    @State private var newHiddenItemID = ""
-
     // MARK: - 偏好设置状态
     
     @AppStorage(ConfigKeys.triggerModifier) private var triggerModifier: TriggerModifier = .command
@@ -66,7 +60,9 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .onChange(of: triggerModifier) { _ in postConfigChangedNotification() }
+                .onChange(of: triggerModifier) {
+                    postConfigChangedNotification()
+                }
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
@@ -76,7 +72,9 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Slider(value: $triggerDuration, in: 0.3...1.5, step: 0.1)
-                        .onChange(of: triggerDuration) { _ in postConfigChangedNotification() }
+                        .onChange(of: triggerDuration) {
+                            postConfigChangedNotification()
+                        }
                 }
                 .padding(.top, 4)
             }
@@ -116,18 +114,16 @@ struct SettingsView: View {
                     Image(systemName: "tray")
                         .font(.system(size: 36))
                         .foregroundStyle(.tertiary)
-                    Text("暂无自定义配置")
+                    Text("暂无 App 配置")
                         .font(.headline)
                         .foregroundStyle(.secondary)
-                    Text("当 HUD 弹出时，你可以通过编辑配置文件\n来隐藏或添加快捷键。")
+                    Text("当 HUD 弹出时，你可以点击“配置”\n为当前 App 添加快捷键或命令。")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
 
                     Button("打开配置文件目录") {
-                        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                        let appDir = appSupport.appendingPathComponent("KeyTip", isDirectory: true)
-                        NSWorkspace.shared.open(appDir)
+                        ConfigStore.shared.openConfigDirectory()
                     }
                     .controlSize(.small)
                     Spacer()
@@ -141,8 +137,12 @@ struct SettingsView: View {
                         VStack(alignment: .leading) {
                             Text(bundleID)
                                 .font(.system(size: 13))
-                            if let config = ConfigStore.shared.config(for: bundleID) {
-                                Text("隐藏: \(config.hiddenItems.count)  自定义: \(config.customItems.count)")
+                            if let summary = ConfigStore.shared.summary(for: bundleID) {
+                                Text(summaryText(for: summary))
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            } else {
+                                Text("TOML 配置文件")
                                     .font(.caption)
                                     .foregroundStyle(.tertiary)
                             }
@@ -155,7 +155,7 @@ struct SettingsView: View {
                 HStack {
                     Button(action: {
                         if let bundleID = selectedBundleID {
-                            ConfigStore.shared.resetConfig(for: bundleID)
+                            ConfigStore.shared.removeConfig(for: bundleID)
                             refreshConfigList()
                         }
                     }) {
@@ -166,10 +166,16 @@ struct SettingsView: View {
 
                     Spacer()
 
+                    Button("打开选中配置") {
+                        if let bundleID = selectedBundleID {
+                            ConfigStore.shared.openConfig(for: bundleID)
+                        }
+                    }
+                    .controlSize(.small)
+                    .disabled(selectedBundleID == nil)
+
                     Button("打开配置文件目录") {
-                        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                        let appDir = appSupport.appendingPathComponent("KeyTip", isDirectory: true)
-                        NSWorkspace.shared.open(appDir)
+                        ConfigStore.shared.openConfigDirectory()
                     }
                     .controlSize(.small)
                 }
@@ -201,7 +207,7 @@ struct SettingsView: View {
             Divider()
                 .frame(width: 200)
 
-            Text("按 ⌥Z 查看当前应用的快捷键")
+            Text("长按设定的修饰键查看当前 App 的展示内容")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
 
@@ -213,14 +219,19 @@ struct SettingsView: View {
     // MARK: - 辅助方法
 
     private func refreshConfigList() {
-        configuredApps = Array(ConfigStore.shared.configuration.appConfigs.keys).sorted()
+        configuredApps = ConfigStore.shared.availableBundleIDs()
+
+        if let selectedBundleID, !configuredApps.contains(selectedBundleID) {
+            self.selectedBundleID = nil
+        }
     }
 
     private func postConfigChangedNotification() {
         NotificationCenter.default.post(name: NSNotification.Name("HotKeyConfigChanged"), object: nil)
     }
-}
 
-#Preview {
-    SettingsView()
+    private func summaryText(for summary: AppDisplayConfigSummary) -> String {
+        let systemText = summary.includeSystemShortcuts ? "含系统项" : "仅自定义"
+        return "\(systemText)  隐藏: \(summary.hiddenCount)  快捷键: \(summary.shortcutCount)  命令: \(summary.commandCount)"
+    }
 }

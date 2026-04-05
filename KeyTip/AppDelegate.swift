@@ -153,14 +153,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         print("🔥 长按触发！前台应用: \(appInfo.localizedName) (\(appInfo.bundleIdentifier))")
 
-        // 使用 Accessibility API 读取菜单栏快捷键
-        let systemGroups = MenuBarReader.readShortcuts(from: appInfo)
+        // 先读取当前 App 的展示配置，再决定是否需要读取系统菜单
+        let config = ConfigStore.shared.loadConfig(for: appInfo.bundleIdentifier)
 
-        // 合并自定义配置（剔除隐藏项 + 追加自定义项）
-        let groups = ShortcutMerger.merge(systemGroups: systemGroups, for: appInfo.bundleIdentifier)
+        let systemGroups: [ShortcutGroup]
+        if config.includeSystemShortcuts {
+            systemGroups = MenuBarReader.readShortcuts(from: appInfo)
+        } else {
+            systemGroups = []
+        }
+
+        // 组装 HUD 展示内容
+        let groups = DisplayContentBuilder.build(systemGroups: systemGroups, config: config)
 
         // 显示 HUD 悬浮窗
-        hudController.show(appInfo: appInfo, groups: groups)
+        hudController.show(
+            appInfo: appInfo,
+            groups: groups,
+            onConfigure: { [weak self] in
+                ConfigStore.shared.openConfig(for: appInfo)
+                self?.hudController.dismiss()
+            }
+        )
     }
     
     /// 热键释放或被打断回调

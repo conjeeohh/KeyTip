@@ -101,10 +101,10 @@ class HotKeyManager {
         // 核心监听 3: 鼠标点击 -- 用于打断长按计时或强制关闭 HUD
         let mouseMask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseMask) { [weak self] event in
-            MainActor.assumeIsolated { self?.handleInterruption() }
+            MainActor.assumeIsolated { self?.handleMouseInterruption() }
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseMask) { [weak self] event in
-            MainActor.assumeIsolated { self?.handleInterruption() }
+            MainActor.assumeIsolated { self?.handleMouseInterruption() }
             return event
         }
 
@@ -166,6 +166,18 @@ class HotKeyManager {
     private func handleInterruption() {
         // 用户按下了任何真正的按键，或者点击了鼠标。
         // 不论是正在计时还是正在展示HUD，都需要立刻中断。
+        isPressing = false
+        cancelPressTaskAndHideIfNeeded()
+    }
+
+    private func handleMouseInterruption() {
+        // 鼠标点击需要打断“长按计时”，避免用户移动鼠标时误触发 HUD。
+        // 但当 HUD 已经显示时，鼠标点击可能是与 HUD 的交互，
+        // 此时关闭逻辑交给 HUDPanelController 处理，不能在这里抢先打断。
+        if isShowingHUD {
+            return
+        }
+
         isPressing = false
         cancelPressTaskAndHideIfNeeded()
     }
