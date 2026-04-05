@@ -134,6 +134,25 @@ class ConfigStore {
         openConfig(for: appInfo.bundleIdentifier)
     }
 
+    /// 将系统项添加到隐藏列表
+    func addHiddenSystemItem(_ itemID: String, for bundleID: String) throws {
+        var config: AppDisplayConfig
+
+        if let existingConfig = try loadExistingConfig(for: bundleID) {
+            config = existingConfig
+        } else {
+            config = AppDisplayConfig()
+        }
+
+        guard !config.hiddenSystemItems.contains(itemID) else {
+            return
+        }
+
+        config.hiddenSystemItems.append(itemID)
+        try saveConfig(config, for: bundleID)
+        print("🙈 已隐藏系统项 [\(bundleID)]: \(itemID)")
+    }
+
     /// 打开配置文件目录
     func openConfigDirectory() {
         ensureConfigDirectoryExists()
@@ -165,6 +184,21 @@ class ConfigStore {
 
         let source = try String(contentsOf: fileURL, encoding: .utf8)
         return try DisplayConfigParser.parse(source)
+    }
+
+    private func saveConfig(_ config: AppDisplayConfig, for bundleID: String) throws {
+        let fileURL = configFileURL(for: bundleID)
+        let source = DisplayConfigSerializer.serialize(config)
+
+        guard let data = source.data(using: .utf8) else {
+            throw NSError(
+                domain: "KeyTip.ConfigStore",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "无法序列化配置文件内容"]
+            )
+        }
+
+        try data.write(to: fileURL, options: .atomic)
     }
 
     private func ensureConfigDirectoryExists() {

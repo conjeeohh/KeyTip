@@ -24,7 +24,7 @@ enum DisplayContentBuilder {
                         title: item.title,
                         groupName: group.menuName,
                         accessory: .shortcut(item.displayShortcut),
-                        isCustom: false
+                        source: .system(itemID: item.id)
                     )
                 }
 
@@ -55,14 +55,14 @@ enum DisplayContentBuilder {
                     title: item.title,
                     groupName: item.group,
                     accessory: .shortcut(shortcut),
-                    isCustom: true
+                    source: .custom
                 )
             case .command(let command):
                 displayItem = DisplayItem(
                     title: item.title,
                     groupName: item.group,
                     accessory: .command(command),
-                    isCustom: true
+                    source: .custom
                 )
             }
 

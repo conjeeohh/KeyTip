@@ -70,10 +70,39 @@ struct DisplayItem: Identifiable, Sendable, Hashable {
     let title: String
     let groupName: String
     let accessory: DisplayItemAccessory
-    let isCustom: Bool
+    let source: DisplayItemSource
 
     var id: String {
-        "\(groupName)|\(title)|\(accessory.content)|\(isCustom)"
+        "\(groupName)|\(title)|\(accessory.content)|\(source.identity)"
+    }
+
+    var isCustom: Bool {
+        if case .custom = source {
+            return true
+        }
+        return false
+    }
+
+    var systemItemID: String? {
+        if case .system(let itemID) = source {
+            return itemID
+        }
+        return nil
+    }
+}
+
+/// HUD 展示项来源
+enum DisplayItemSource: Sendable, Hashable {
+    case system(itemID: String)
+    case custom
+
+    var identity: String {
+        switch self {
+        case .system(let itemID):
+            return "system:\(itemID)"
+        case .custom:
+            return "custom"
+        }
     }
 }
 

@@ -39,13 +39,25 @@ struct VisualEffectBackground: NSViewRepresentable {
 struct HUDContentView: View {
 
     let appInfo: ActiveAppInfo
-    let displayGroups: [DisplayGroup]
     var onConfigure: (() -> Void)?
     var onDismiss: (() -> Void)?
+    @State private var visibleGroups: [DisplayGroup]
+
+    init(
+        appInfo: ActiveAppInfo,
+        displayGroups: [DisplayGroup],
+        onConfigure: (() -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
+    ) {
+        self.appInfo = appInfo
+        self.onConfigure = onConfigure
+        self.onDismiss = onDismiss
+        _visibleGroups = State(initialValue: displayGroups)
+    }
 
     /// 动态列数
     private var columnCount: Int {
-        let count = displayGroups.count
+        let count = visibleGroups.count
         if count <= 2 { return min(count, 2) }
         if count <= 5 { return 2 }
         return 3
@@ -53,12 +65,12 @@ struct HUDContentView: View {
 
     /// 贪心分列算法 — 将分组均衡分配到各列
     private var columns: [[DisplayGroup]] {
-        guard !displayGroups.isEmpty else { return [] }
+        guard !visibleGroups.isEmpty else { return [] }
         let cols = columnCount
         var result: [[DisplayGroup]] = Array(repeating: [], count: cols)
         var heights = Array(repeating: 0, count: cols)
 
-        for group in displayGroups {
+        for group in visibleGroups {
             let minIdx = heights.indices.min(by: { heights[$0] < heights[$1] }) ?? 0
             result[minIdx].append(group)
             heights[minIdx] += group.items.count + 2
@@ -79,7 +91,7 @@ struct HUDContentView: View {
                 .frame(height: 0.5)
                 .padding(.horizontal, 20)
 
-            if displayGroups.isEmpty {
+            if visibleGroups.isEmpty {
                 emptyStateView
             } else {
                 shortcutGridView
@@ -122,7 +134,7 @@ struct HUDContentView: View {
             Spacer()
 
             // 展示项总数
-            let totalCount = displayGroups.reduce(0) { $0 + $1.items.count }
+            let totalCount = visibleGroups.reduce(0) { $0 + $1.items.count }
             Text("\(totalCount) 项")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -163,7 +175,11 @@ struct HUDContentView: View {
                 ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
                     VStack(alignment: .leading, spacing: 20) {
                         ForEach(column) { group in
-                            DisplayGroupView(group: group)
+                            DisplayGroupView(
+                                group: group,
+                                onCopySystemItemID: copySystemItemID,
+                                onHideSystemItem: hideSystemItem
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -195,6 +211,25 @@ struct HUDContentView: View {
         .frame(maxWidth: .infinity, minHeight: 160)
         .padding()
     }
+
+    private func copySystemItemID(_ itemID: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(itemID, forType: .string)
+        print("📋 已复制系统项 ID: \(itemID)")
+    }
+
+    private func hideSystemItem(_ itemID: String) {
+        do {
+            try ConfigStore.shared.addHiddenSystemItem(itemID, for: appInfo.bundleIdentifier)
+            visibleGroups = visibleGroups.compactMap { group in
+                let filteredItems = group.items.filter { $0.systemItemID != itemID }
+                guard !filteredItems.isEmpty else { return nil }
+                return DisplayGroup(title: group.title, items: filteredItems)
+            }
+        } catch {
+            print("⚠️ 隐藏系统项失败 [\(appInfo.bundleIdentifier)]: \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: - 分组视图
@@ -202,6 +237,8 @@ struct HUDContentView: View {
 struct DisplayGroupView: View {
 
     let group: DisplayGroup
+    let onCopySystemItemID: (String) -> Void
+    let onHideSystemItem: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -214,7 +251,11 @@ struct DisplayGroupView: View {
 
             // 展示项列表
             ForEach(group.items) { item in
-                DisplayItemRow(item: item)
+                DisplayItemRow(
+                    item: item,
+                    onCopySystemItemID: onCopySystemItemID,
+                    onHideSystemItem: onHideSystemItem
+                )
             }
         }
     }
@@ -225,6 +266,8 @@ struct DisplayGroupView: View {
 struct DisplayItemRow: View {
 
     let item: DisplayItem
+    let onCopySystemItemID: (String) -> Void
+    let onHideSystemItem: (String) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -238,6 +281,25 @@ struct DisplayItemRow: View {
             Spacer(minLength: 12)
 
             DisplayAccessoryView(accessory: item.accessory)
+
+            if let itemID = item.systemItemID {
+                Menu {
+                    Button("复制 ID") {
+                        onCopySystemItemID(itemID)
+                    }
+
+                    Button("隐藏此项", role: .destructive) {
+                        onHideSystemItem(itemID)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("复制系统项 ID 或隐藏此项")
+            }
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
@@ -249,6 +311,17 @@ struct DisplayItemRow: View {
                 }
             }
         )
+        .contextMenu {
+            if let itemID = item.systemItemID {
+                Button("复制 ID") {
+                    onCopySystemItemID(itemID)
+                }
+
+                Button("隐藏此项") {
+                    onHideSystemItem(itemID)
+                }
+            }
+        }
     }
 }
 
