@@ -170,7 +170,7 @@ struct HUDContentView: View {
     // MARK: - 快捷键网格
 
     private var shortcutGridView: some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        ScrollView(.vertical, showsIndicators: false) {
             HStack(alignment: .top, spacing: 24) {
                 ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
                     VStack(alignment: .leading, spacing: 20) {
@@ -182,11 +182,17 @@ struct HUDContentView: View {
                             )
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 18)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+        .overlay(alignment: .top) {
+            ScrollEdgeFade(edge: .top)
+        }
+        .overlay(alignment: .bottom) {
+            ScrollEdgeFade(edge: .bottom)
         }
     }
 
@@ -339,6 +345,32 @@ struct DisplayAccessoryView: View {
         case .command(let command):
             CommandPillView(command: command)
         }
+    }
+}
+
+private enum ScrollFadeEdge {
+    case top
+    case bottom
+}
+
+private struct ScrollEdgeFade: View {
+
+    let edge: ScrollFadeEdge
+
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .mask(
+                LinearGradient(
+                    colors: edge == .top
+                        ? [.black.opacity(0.55), .clear]
+                        : [.clear, .black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(height: 20)
+            .allowsHitTesting(false)
     }
 }
 
