@@ -6,6 +6,8 @@ KeyTip 是一个 macOS 菜单栏工具，用来快速查看当前前台应用的
 
 > 当前仓库仍处于可运行原型阶段，但主流程已经可用。
 
+![KeyTip HUD 主截图](docs/images/keytip-hud.png)
+
 ## 适合什么场景
 
 - 你记得某个命令存在，但忘了它的快捷键
@@ -54,7 +56,19 @@ KeyTip 是一个 macOS 菜单栏工具，用来快速查看当前前台应用的
 - Xcode 16+
 - Swift 6
 
+## 下载
+
+如果你只是想直接体验 KeyTip，不需要自己编译。
+
+可以前往 GitHub Releases 下载已经构建好的版本：
+
+[下载最新版本](https://github.com/conjeeohh/KeyTip/releases)
+
+下载后，将应用拖入“应用程序”目录，再首次运行并授予辅助功能权限即可。
+
 ## 快速开始
+
+如果你希望自己编译和开发，请按下面的方式运行：
 
 1. 克隆仓库
 2. 用 Xcode 打开 `KeyTip.xcodeproj`
